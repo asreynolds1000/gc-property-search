@@ -1,0 +1,6 @@
+{
+  "references": [
+    { "path": "./mcp-server" }
+  ],
+  "files": []
+}

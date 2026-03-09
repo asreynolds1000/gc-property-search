@@ -1,0 +1,48 @@
+{
+  "name": "gc-property-search-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for Greenville County SC property records: GIS parcels, Register of Deeds, tax assessments, zoning, vehicle tax, and scanned archive (1780s-present)",
+  "type": "module",
+  "bin": {
+    "gc-property-search-mcp": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc && chmod +x dist/index.js",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "greenville-county",
+    "property-search",
+    "gis",
+    "register-of-deeds",
+    "tax-records",
+    "south-carolina"
+  ],
+  "author": "Alex Reynolds",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/asreynolds1000/gc-property-search.git",
+    "directory": "mcp-server"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "tsx": "^4.19.4",
+    "typescript": "^5",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

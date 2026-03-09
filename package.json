@@ -1,0 +1,11 @@
+{
+  "name": "gc-property-search",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Greenville County property search MCP server",
+  "scripts": {
+    "build": "cd mcp-server && npm run build",
+    "test": "cd mcp-server && npm test",
+    "dev": "cd mcp-server && npm run dev"
+  }
+}
