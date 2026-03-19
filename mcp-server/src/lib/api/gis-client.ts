@@ -34,6 +34,29 @@ function isValidPin(pin: string): boolean {
   return /^[A-Za-z0-9-]+$/.test(pin)
 }
 
+/**
+ * Strip common street suffixes from address queries.
+ * The GIS LOCATE field stores addresses WITHOUT suffixes
+ * (e.g., "NOBLE WING" not "NOBLE WING LN"), so user input
+ * like "Noble Wing Ln" must be cleaned before querying.
+ */
+const STREET_SUFFIXES = new Set([
+  'LN', 'LANE', 'DR', 'DRIVE', 'ST', 'STREET', 'CT', 'COURT',
+  'AVE', 'AVENUE', 'BLVD', 'BOULEVARD', 'RD', 'ROAD', 'WAY',
+  'PL', 'PLACE', 'CIR', 'CIRCLE', 'TRL', 'TRAIL', 'PKWY',
+  'PARKWAY', 'TER', 'TERR', 'TERRACE', 'HWY', 'HIGHWAY',
+  'EXT', 'EXTENSION', 'LOOP', 'PATH', 'RUN', 'WALK', 'XING',
+  'CROSSING', 'PT', 'POINT', 'CV', 'COVE',
+])
+
+function stripStreetSuffix(street: string): string {
+  const words = street.trim().split(/\s+/)
+  if (words.length > 1 && STREET_SUFFIXES.has(words[words.length - 1].toUpperCase())) {
+    return words.slice(0, -1).join(' ')
+  }
+  return street
+}
+
 // New service structure: each category is a separate MapServer
 const SERVICES = {
   TAX_PARCEL: 'Tax_Parcel_Search_and_Select/MapServer',
@@ -175,7 +198,7 @@ export class GreenvilleGIS {
     city?: string,
     exactMatch?: boolean
   ): Promise<GISFeature[]> {
-    const cleanStreet = sanitizeForSql(street.toUpperCase(), !exactMatch)
+    const cleanStreet = sanitizeForSql(stripStreetSuffix(street).toUpperCase(), !exactMatch)
     let where = exactMatch
       ? `LOCATE = '${cleanStreet}'`
       : `LOCATE LIKE '%${cleanStreet}%' ESCAPE '\\'`
@@ -190,11 +213,11 @@ export class GreenvilleGIS {
   }
 
   async searchCombined(query: string, city?: string): Promise<GISFeature[]> {
-    // Split query into terms, filter short words, sanitize each term
+    // Split query into terms, filter short words and street suffixes, sanitize each term
     const terms = query
       .toUpperCase()
       .split(/\s+/)
-      .filter((t) => t.length > 2)
+      .filter((t) => t.length > 2 && !STREET_SUFFIXES.has(t))
       .map((t) => sanitizeForSql(t))
 
     if (terms.length === 0) {
