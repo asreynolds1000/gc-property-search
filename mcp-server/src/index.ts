@@ -13,6 +13,9 @@ import { buildDeedArchiveUrl, buildPlatArchiveUrl, buildArchiveUrl, fetchArchive
 import type { ArchiveCategory, IndexType } from './lib/rod-archive.js'
 import { parseHistoricalRecordsHtml } from './lib/parsers/historical-records.js'
 import { buildHistoricalRecordUrl, fetchHistoricalRecordPage, fetchHistoricalRecordsHtml } from './lib/historical-records.js'
+import { writeFileSync, mkdirSync } from 'fs'
+import { dirname, resolve } from 'path'
+import { homedir } from 'os'
 
 const gis = new GreenvilleGIS()
 
@@ -544,7 +547,9 @@ Book naming by category:
 - Tax Maps: Book = edition name (e.g., "1998 Edition", "2005 Edition")
 
 Pages are 1-based. Returns error with direct URL if page not found.
-Tip: get_property_details and search_rod_documents include archiveUrl fields for documents in the scanned archive.`,
+Tip: get_property_details and search_rod_documents include archiveUrl fields for documents in the scanned archive.
+
+When output_path is provided, saves the PNG to that file path and returns the path + size instead of the inline image. Supports ~ for home directory. Creates parent directories automatically.`,
   {
     category: z.enum(['deeds', 'plats', 'indexes', 'land_grants', 'mortgages', 'affidavits', 'satisfactions', 'tax_maps']).describe('Document category'),
     book: z.string().describe('Book identifier: letter(s) for lettered books (A, AA, AAA), number for numbered books (198), letter section for indexes (H), "4-A" format for numbered plats'),
@@ -552,8 +557,9 @@ Tip: get_property_details and search_rod_documents include archiveUrl fields for
     index_type: z.enum(['grantor', 'grantee', 'mortgagor', 'mortgagee', 'federal_tax_lien', 'plats']).optional().describe('For indexes only: which index to search'),
     date_range: z.string().optional().describe('For grantor/grantee/mortgagor/mortgagee indexes: -1913, 1914-1949, 1950-1974, or 1975-1989'),
     max_width: z.coerce.number().optional().describe('Max image width in pixels (default 1200). Reduce for smaller output.'),
+    output_path: z.string().optional().describe('Optional local file path to save the PNG to. When provided, returns file path + size instead of inline image. Supports ~ for home directory.'),
   },
-  async ({ category, book, page, index_type, date_range, max_width }) => {
+  async ({ category, book, page, index_type, date_range, max_width, output_path }) => {
     try {
       const url = buildArchiveUrl(
         category as ArchiveCategory,
@@ -570,6 +576,20 @@ Tip: get_property_details and search_rod_documents include archiveUrl fields for
       }
 
       const pngBuffer = await fetchArchivePageAsPng(url, max_width || 1200)
+
+      if (output_path) {
+        const resolvedPath = output_path.startsWith('~')
+          ? resolve(homedir(), output_path.slice(2))
+          : resolve(output_path)
+        mkdirSync(dirname(resolvedPath), { recursive: true })
+        writeFileSync(resolvedPath, pngBuffer)
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `Saved ${pngBuffer.length} bytes to ${resolvedPath}`,
+          }],
+        }
+      }
 
       return {
         content: [{
@@ -634,12 +654,15 @@ Use list_historical_records first to discover the exact path to a volume. Volume
 
 Example: list_historical_records shows a volume "Book B, 1820 - 1840" under \\Probate Court\\Will Books. Fetch page 1 with path "\\Probate Court\\Will Books\\Book B, 1820 - 1840" and page 1.
 
-Note: reported page counts may be slightly understated — actual pages may extend a few beyond the listed count.`,
+Note: reported page counts may be slightly understated — actual pages may extend a few beyond the listed count.
+
+When output_path is provided, saves the JPEG to that file path and returns the path + size instead of the inline image. Supports ~ for home directory. Creates parent directories automatically.`,
   {
     path: z.string().describe('Full backslash-separated path to the volume (e.g., "\\\\Probate Court\\\\Will Books\\\\Book B, 1820 - 1840"). Get this from list_historical_records.'),
     page: z.coerce.number().describe('Page number to fetch (1-based)'),
+    output_path: z.string().optional().describe('Optional local file path to save the JPEG to. When provided, returns file path + size instead of inline image. Supports ~ for home directory.'),
   },
-  async ({ path, page }) => {
+  async ({ path, page, output_path }) => {
     try {
       if (page < 1) {
         return {
@@ -650,6 +673,20 @@ Note: reported page counts may be slightly understated — actual pages may exte
 
       const url = buildHistoricalRecordUrl(path, page)
       const imageBuffer = await fetchHistoricalRecordPage(url)
+
+      if (output_path) {
+        const resolvedPath = output_path.startsWith('~')
+          ? resolve(homedir(), output_path.slice(2))
+          : resolve(output_path)
+        mkdirSync(dirname(resolvedPath), { recursive: true })
+        writeFileSync(resolvedPath, imageBuffer)
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `Saved ${imageBuffer.length} bytes to ${resolvedPath}`,
+          }],
+        }
+      }
 
       return {
         content: [{
