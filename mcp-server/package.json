@@ -1,7 +1,7 @@
 {
   "name": "gc-property-search-mcp",
-  "version": "1.0.0",
-  "description": "MCP server for Greenville County SC property records: GIS parcels, Register of Deeds, tax assessments, zoning, vehicle tax, and scanned archive (1780s-present)",
+  "version": "1.1.0",
+  "description": "MCP server for Greenville County SC property records: GIS parcels, Register of Deeds, tax assessments, zoning, vehicle tax, scanned archives (1780s-present), and historical court records",
   "type": "module",
   "bin": {
     "gc-property-search-mcp": "dist/index.js"

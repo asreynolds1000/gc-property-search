@@ -19,6 +19,7 @@ export interface RODDocument {
   viewUrl?: string
   pageCount?: number
   archiveUrl?: string         // URL to scanned archive page (if available)
+  isElectronicOnly?: boolean  // true if record exists only in electronic index (no scanned archive)
 }
 
 export type RODVolume = 'DE' | 'MT' | 'PL' // Deed, Mortgage, Plat

@@ -370,7 +370,8 @@ export class GreenvilleROD {
     instId: string,
     pageNumber: number,
     instNum?: string,
-    instType?: string
+    instType?: string,
+    retried = false
   ): Promise<Buffer | null> {
     if (!this.cookies.has('JSESSIONID')) {
       const loggedIn = await this.login()
@@ -402,13 +403,14 @@ export class GreenvilleROD {
     // Check for session expiry on docInfoView response
     const docInfoHtml = await docInfoFollowed.text()
     if (this.isLoginPage(docInfoHtml)) {
+      if (retried) throw new Error('ROD session keeps expiring after re-login')
       // Session expired -- re-login and retry once
       this.cookies.clear()
       const loggedIn = await this.login()
       if (!loggedIn) {
         throw new Error('Failed to re-login to ROD after session expiry')
       }
-      return this.getDocumentPage(instId, pageNumber, instNum, instType)
+      return this.getDocumentPage(instId, pageNumber, instNum, instType, true)
     }
 
     // Step 2: Call imageViewApplet.do which redirects to InstrumentImageViewInternal.jsp

@@ -11,6 +11,8 @@ import { parseVehicleTaxResultsHtml, parseVehicleTaxDetailHtml } from './lib/par
 import { parseOtherTaxResultsHtml, parseOtherTaxDetailHtml } from './lib/parsers/other-tax.js'
 import { buildDeedArchiveUrl, buildPlatArchiveUrl, buildArchiveUrl, fetchArchivePageAsPng } from './lib/rod-archive.js'
 import type { ArchiveCategory, IndexType } from './lib/rod-archive.js'
+import { parseHistoricalRecordsHtml } from './lib/parsers/historical-records.js'
+import { buildHistoricalRecordUrl, fetchHistoricalRecordPage, fetchHistoricalRecordsHtml } from './lib/historical-records.js'
 
 const gis = new GreenvilleGIS()
 
@@ -30,7 +32,7 @@ function getROD(): GreenvilleROD {
 
 const server = new McpServer({
   name: 'gc-property-search',
-  version: '1.0.0',
+  version: '1.1.0',
 })
 
 // -- search_properties -------------------------------------------------------
@@ -254,7 +256,7 @@ server.tool(
   {
     search_type: z.enum(['name', 'book_page']).describe('Search by name or by book/page reference'),
     name: z.string().optional().describe('Owner/party name to search (required if search_type is "name")'),
-    volume: z.enum(['DE', 'MT', 'PL']).optional().describe('Document volume: DE=Deed, MT=Mortgage, PL=Plat (required if search_type is "book_page")'),
+    volume: z.enum(['DE', 'MT', 'PL']).optional().describe('Document volume: DE=Deed (default), MT=Mortgage, PL=Plat. Defaults to DE for book_page searches.'),
     book: z.string().optional().describe('Book number (required if search_type is "book_page")'),
     page: z.string().optional().describe('Page number (required if search_type is "book_page")'),
     date_from: z.string().optional().describe('Start date MM/DD/YYYY (name search only)'),
@@ -285,13 +287,14 @@ server.tool(
         documents = result.documents
         uniqueDocuments = result.uniqueDocuments
       } else {
-        if (!volume || !book || !page) {
+        if (!book || !page) {
           return {
-            content: [{ type: 'text' as const, text: 'Error: "volume", "book", and "page" are required for book/page search' }],
+            content: [{ type: 'text' as const, text: 'Error: "book" and "page" are required for book/page search' }],
             isError: true,
           }
         }
-        documents = await rodClient.searchByBookPage(volume, book, page)
+        const resolvedVolume = volume || 'DE'
+        documents = await rodClient.searchByBookPage(resolvedVolume, book, page)
         uniqueDocuments = documents.length
       }
 
@@ -314,13 +317,25 @@ server.tool(
           : desc.includes('SATISFACTION') ? 'satisfactions'
           : desc.includes('AFFIDAVIT') ? 'affidavits'
           : 'deeds'
-        const archiveUrl = buildArchiveUrl(
-          category as ArchiveCategory,
-          doc.book,
-          parseInt(doc.page, 10),
+
+        // Skip archive URL for electronic-only records (no scanned archive exists)
+        const bookNum = parseInt(doc.book, 10)
+        const isElectronicOnly = !isNaN(bookNum) && (
+          (category === 'deeds' && bookNum > 1230) ||
+          (category === 'plats' && bookNum >= 13)
         )
-        if (archiveUrl) {
-          doc.archiveUrl = archiveUrl
+
+        if (isElectronicOnly) {
+          doc.isElectronicOnly = true
+        } else {
+          const archiveUrl = buildArchiveUrl(
+            category as ArchiveCategory,
+            doc.book,
+            parseInt(doc.page, 10),
+          )
+          if (archiveUrl) {
+            doc.archiveUrl = archiveUrl
+          }
         }
       }
 
@@ -351,21 +366,29 @@ server.tool(
 // -- get_rod_document_page ---------------------------------------------------
 server.tool(
   'get_rod_document_page',
-  'Fetch a specific page of a document from the Register of Deeds as a PNG image. Use search_rod_documents first to get the instId.',
+  'Fetch a specific page of a document from the Register of Deeds as a PNG image. Use search_rod_documents first to get the instId. Note: pagination may not work for some older e-filed documents (pre-2000) — the viewer may return the same first page for all page numbers. For those documents, try the scanned archive via get_rod_archive_page instead.',
   {
-    inst_id: z.string().describe('Document instrument ID (from search_rod_documents results)'),
+    inst_id: z.string().optional().describe('Document instrument ID (from search_rod_documents results). Alias: instId.'),
+    instId: z.string().optional().describe('Alias for inst_id — accepts camelCase as returned by search_rod_documents results.'),
     page_number: z.coerce.number().default(1).describe('Page number to fetch (1-based). Defaults to 1.'),
     inst_num: z.string().optional().describe('Instrument number (optional, improves reliability)'),
     inst_type: z.string().optional().describe('Instrument type (optional, e.g., "DEED")'),
   },
-  async ({ inst_id, page_number, inst_num, inst_type }) => {
+  async ({ inst_id, instId, page_number, inst_num, inst_type }) => {
     try {
+      const id = inst_id || instId
+      if (!id) {
+        return {
+          content: [{ type: 'text' as const, text: 'Error: either "inst_id" or "instId" is required' }],
+          isError: true,
+        }
+      }
       const rodClient = getROD()
-      const imageBuffer = await rodClient.getDocumentPage(inst_id, page_number, inst_num, inst_type)
+      const imageBuffer = await rodClient.getDocumentPage(id, page_number, inst_num, inst_type)
 
       if (!imageBuffer) {
         return {
-          content: [{ type: 'text' as const, text: `No page ${page_number} found for document ${inst_id}. The document may have fewer pages.` }],
+          content: [{ type: 'text' as const, text: `No page ${page_number} found for document ${id}. The document may have fewer pages.` }],
           isError: true,
         }
       }
@@ -528,8 +551,9 @@ Tip: get_property_details and search_rod_documents include archiveUrl fields for
     page: z.coerce.number().describe('Page number (1-based)'),
     index_type: z.enum(['grantor', 'grantee', 'mortgagor', 'mortgagee', 'federal_tax_lien', 'plats']).optional().describe('For indexes only: which index to search'),
     date_range: z.string().optional().describe('For grantor/grantee/mortgagor/mortgagee indexes: -1913, 1914-1949, 1950-1974, or 1975-1989'),
+    max_width: z.coerce.number().optional().describe('Max image width in pixels (default 1200). Reduce for smaller output.'),
   },
-  async ({ category, book, page, index_type, date_range }) => {
+  async ({ category, book, page, index_type, date_range, max_width }) => {
     try {
       const url = buildArchiveUrl(
         category as ArchiveCategory,
@@ -545,7 +569,7 @@ Tip: get_property_details and search_rod_documents include archiveUrl fields for
         }
       }
 
-      const pngBuffer = await fetchArchivePageAsPng(url)
+      const pngBuffer = await fetchArchivePageAsPng(url, max_width || 1200)
 
       return {
         content: [{
@@ -557,6 +581,86 @@ Tip: get_property_details and search_rod_documents include archiveUrl fields for
     } catch (error) {
       return {
         content: [{ type: 'text' as const, text: `Error fetching archive page: ${error instanceof Error ? error.message : String(error)}` }],
+        isError: true,
+      }
+    }
+  }
+)
+
+// -- list_historical_records -------------------------------------------------
+server.tool(
+  'list_historical_records',
+  `Browse Greenville County Historical Records Search — scanned court documents from the 1780s to early 1900s. Navigate a directory tree of 6 county offices to find volumes of digitized records, then use get_historical_record_page to view individual pages.
+
+Offices: Council Commissioners, Court of Common Pleas, Court of General Sessions, Probate Court, Register of Deeds, Sheriff's Office.
+
+Probate Court record types include: Will Books, Estate Records, Returns, Marriage License indexes, Guardian and Trustee Account Books, and more.
+
+Usage: call with no path to list offices, then drill down by appending folder names with backslash separators. Entries with type "volume" have viewable pages — use get_historical_record_page with the full path to fetch them.`,
+  {
+    path: z.string().optional().describe('Backslash-separated path to browse (e.g., "\\\\Probate Court\\\\Will Books"). Omit for root listing of all offices.'),
+  },
+  async ({ path }) => {
+    try {
+      const html = await fetchHistoricalRecordsHtml(path)
+      const entries = parseHistoricalRecordsHtml(html)
+
+      const result = {
+        path: path || '',
+        entries,
+        ...(entries.some(e => e.type === 'volume') && {
+          hint: 'Entries with type "volume" contain viewable pages. Use get_historical_record_page with the full path (e.g., "\\Probate Court\\Will Books\\Book B, 1820 - 1840") and a page number to fetch individual pages.',
+        }),
+      }
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+      }
+    } catch (error) {
+      return {
+        content: [{ type: 'text' as const, text: `Error listing historical records: ${error instanceof Error ? error.message : String(error)}` }],
+        isError: true,
+      }
+    }
+  }
+)
+
+// -- get_historical_record_page ----------------------------------------------
+server.tool(
+  'get_historical_record_page',
+  `Fetch a page image from the Greenville County Historical Records Search. Returns a JPEG image of a scanned historical court document.
+
+Use list_historical_records first to discover the exact path to a volume. Volume folder names have unpredictable formatting (e.g., "Book B, 1820 - 1840", "Apt 0001 File 001 - Apt 0002 File 082") — you must use the exact name from the listing.
+
+Example: list_historical_records shows a volume "Book B, 1820 - 1840" under \\Probate Court\\Will Books. Fetch page 1 with path "\\Probate Court\\Will Books\\Book B, 1820 - 1840" and page 1.
+
+Note: reported page counts may be slightly understated — actual pages may extend a few beyond the listed count.`,
+  {
+    path: z.string().describe('Full backslash-separated path to the volume (e.g., "\\\\Probate Court\\\\Will Books\\\\Book B, 1820 - 1840"). Get this from list_historical_records.'),
+    page: z.coerce.number().describe('Page number to fetch (1-based)'),
+  },
+  async ({ path, page }) => {
+    try {
+      if (page < 1) {
+        return {
+          content: [{ type: 'text' as const, text: 'Error: page must be >= 1' }],
+          isError: true,
+        }
+      }
+
+      const url = buildHistoricalRecordUrl(path, page)
+      const imageBuffer = await fetchHistoricalRecordPage(url)
+
+      return {
+        content: [{
+          type: 'image' as const,
+          data: imageBuffer.toString('base64'),
+          mimeType: 'image/jpeg',
+        }],
+      }
+    } catch (error) {
+      return {
+        content: [{ type: 'text' as const, text: `Error fetching historical record page: ${error instanceof Error ? error.message : String(error)}` }],
         isError: true,
       }
     }

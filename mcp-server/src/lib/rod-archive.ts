@@ -1,5 +1,5 @@
 import { execFile } from 'child_process'
-import { writeFile, readFile, unlink, access } from 'fs/promises'
+import { writeFile, readFile, unlink } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { USER_AGENT } from './constants.js'
@@ -28,8 +28,10 @@ export interface ArchivePageOptions {
  * Books 1-99 → "Books 0001-099", Books 100-199 → "Books 0100-199", etc.
  * Final range for deeds: Books 1200-1230.
  */
-function getNumberedRangeFolder(bookNum: number): string {
+function getNumberedRangeFolder(bookNum: number, category: 'deeds' | 'mortgages' = 'deeds'): string {
   if (bookNum < 100) return 'Books 0001-099'
+  // Deed archive ends at book 1230 — actual folder is "Books 1200-1230", not "Books 1200-1299"
+  if (category === 'deeds' && bookNum >= 1200) return 'Books 1200-1230'
   const rangeStart = Math.floor(bookNum / 100) * 100
   const rangeEnd = rangeStart + 99
   return `Books ${String(rangeStart).padStart(4, '0')}-${rangeEnd}`
@@ -119,8 +121,11 @@ export function buildArchivePath(
       const match = book.match(/^(\d+)-([A-Z])$/i)
       if (!match) throw new Error(`Invalid plat book: ${book}. Use letter (e.g., "A") or numbered format (e.g., "4-A").`)
       const [, num, letter] = match
-      const groupNum = String(parseInt(num)).padStart(2, '0')
-      const bookId = `${parseInt(num)}-${letter.toUpperCase()}`
+      const platGroupNum = parseInt(num)
+      // Plat archive only covers groups 1-12. Group 13+ doesn't exist.
+      if (platGroupNum > 12) throw new Error(`Plat book group ${platGroupNum} is not in the scanned archive (archive covers groups 1-12 only). Use search_rod_documents + get_rod_document_page for electronic records.`)
+      const groupNum = String(platGroupNum).padStart(2, '0')
+      const bookId = `${platGroupNum}-${letter.toUpperCase()}`
       return `Plats\\Books ${groupNum} A-Z\\${bookId}\\${bookId} ${platPageStr}.pdf`
     }
 
@@ -137,6 +142,7 @@ export function buildArchivePath(
       }
       // Grantor/Grantee/Mortgagor/Mortgagee: need date_range
       if (!options.dateRange) throw new Error('date_range is required for grantor/grantee/mortgagor/mortgagee indexes')
+      if (!/^-?\d{4}(-\d{4})?$/.test(options.dateRange)) throw new Error(`Invalid date range: ${options.dateRange}. Expected format: -1913, 1914-1949, 1950-1974, or 1975-1989.`)
       return `Indexes\\${folder}\\${options.dateRange}\\${bookUpper}\\${pageStr}.pdf`
     }
 
@@ -146,7 +152,7 @@ export function buildArchivePath(
     case 'mortgages': {
       const bookNum = parseInt(book, 10)
       if (isNaN(bookNum)) throw new Error(`Invalid mortgage book: ${book}`)
-      const range = getNumberedRangeFolder(bookNum)
+      const range = getNumberedRangeFolder(bookNum, 'mortgages')
       const bookFolder = bookNum < 100 ? `Book ${String(bookNum).padStart(2, '0')}` : `Book ${bookNum}`
       return `Mortgages\\${range}\\${bookFolder}\\${pageStr}.pdf`
     }
@@ -165,6 +171,7 @@ export function buildArchivePath(
 
     case 'tax_maps':
       // book = edition name (e.g., "1998 Edition", "2005 Edition")
+      if (!/^[\w\s]+$/.test(book)) throw new Error(`Invalid tax map edition name: ${book}. Expected alphanumeric/spaces only (e.g., "1998 Edition").`)
       return `Tax Maps\\${book}\\${pageStr}.pdf`
 
     default:
@@ -217,7 +224,7 @@ export function buildPlatArchiveUrl(book: string | null | undefined, page: strin
  * Fetch a PDF page from the archive and convert it to PNG.
  * Returns the PNG buffer or throws with a descriptive error including the direct URL.
  */
-export async function fetchArchivePageAsPng(url: string): Promise<Buffer> {
+export async function fetchArchivePageAsPng(url: string, maxWidth: number = 1200): Promise<Buffer> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 30_000)
 
@@ -248,13 +255,22 @@ export async function fetchArchivePageAsPng(url: string): Promise<Buffer> {
       throw new Error(`HTTP ${response.status}: ${response.statusText}. Direct URL: ${url}`)
     }
 
+    // Defense-in-depth: ensure we haven't been redirected off greenvillecounty.org
+    const finalUrl = response.url
+    if (finalUrl && !finalUrl.startsWith('https://www.greenvillecounty.org/')) {
+      throw new Error(`Unexpected redirect to: ${finalUrl}`)
+    }
+
     const contentType = response.headers.get('content-type') || ''
     if (!contentType.includes('application/pdf')) {
       throw new Error(`Unexpected content type: ${contentType}. Expected PDF. Direct URL: ${url}`)
     }
 
     const pdfBuffer = Buffer.from(await response.arrayBuffer())
-    return await convertPdfToPng(pdfBuffer)
+    if (pdfBuffer.length > 50 * 1024 * 1024) {
+      throw new Error(`PDF too large to process (${Math.round(pdfBuffer.length / 1024 / 1024)}MB). Max 50MB.`)
+    }
+    return await convertPdfToPng(pdfBuffer, maxWidth)
   } finally {
     clearTimeout(timeout)
   }
@@ -263,7 +279,9 @@ export async function fetchArchivePageAsPng(url: string): Promise<Buffer> {
 /**
  * Check if pdftoppm is available on the system.
  */
+let pdftoppmChecked = false
 async function checkPdftoppm(): Promise<void> {
+  if (pdftoppmChecked) return
   return new Promise<void>((resolve, reject) => {
     execFile('which', ['pdftoppm'], (error) => {
       if (error) {
@@ -271,6 +289,7 @@ async function checkPdftoppm(): Promise<void> {
           'pdftoppm not found. Install poppler: brew install poppler (macOS) or apt install poppler-utils (Linux).'
         ))
       } else {
+        pdftoppmChecked = true
         resolve()
       }
     })
@@ -280,8 +299,10 @@ async function checkPdftoppm(): Promise<void> {
 /**
  * Convert a single-page PDF to PNG using pdftoppm (from poppler).
  */
-async function convertPdfToPng(pdfBuffer: Buffer): Promise<Buffer> {
+async function convertPdfToPng(pdfBuffer: Buffer, maxWidth: number = 1200): Promise<Buffer> {
   await checkPdftoppm()
+  // Clamp width to reasonable range to prevent memory exhaustion
+  const clampedWidth = Math.max(100, Math.min(maxWidth, 4000))
   const id = `rod_archive_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
   const pdfPath = join(tmpdir(), `${id}.pdf`)
   const pngBase = join(tmpdir(), id)
@@ -290,8 +311,11 @@ async function convertPdfToPng(pdfBuffer: Buffer): Promise<Buffer> {
   try {
     await writeFile(pdfPath, pdfBuffer)
 
+    // Use -scale-to-x for width-constrained scaling (keeps aspect ratio).
+    // Don't combine with -r (resolution) — they conflict in some poppler versions.
+    const args = ['-png', '-scale-to-x', String(clampedWidth), '-scale-to-y', '-1', '-singlefile', pdfPath, pngBase]
     await new Promise<void>((resolve, reject) => {
-      execFile('pdftoppm', ['-png', '-r', '150', '-singlefile', pdfPath, pngBase], (error) => {
+      execFile('pdftoppm', args, (error) => {
         if (error) reject(new Error(`PDF to PNG conversion failed: ${error.message}`))
         else resolve()
       })

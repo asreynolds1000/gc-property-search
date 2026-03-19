@@ -1,10 +1,8 @@
-import { USER_AGENT } from './constants.js'
+import { USER_AGENT, TIMEOUT_MS } from './constants.js'
 
 const TAX_BASE_URL = 'https://www.greenvillecounty.org/appsas400/RealProperty/Details.aspx'
 const ZONING_BASE_URL = 'https://www.greenvillecounty.org/apps/zoning'
 const VOTAXQRY_BASE_URL = 'https://www.greenvillecounty.org/appsas400/votaxqry'
-
-const TIMEOUT_MS = 30_000
 
 function fetchWithTimeout(url: string): Promise<Response> {
   const controller = new AbortController()

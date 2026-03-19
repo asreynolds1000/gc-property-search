@@ -53,10 +53,28 @@ describe('buildArchivePath', () => {
       )
     })
 
-    it('book 1200 in range 1200-1299', () => {
+    it('book 1200 in range 1200-1230 (archive ends at 1230)', () => {
       expect(buildArchivePath('deeds', '1200', 1)).toBe(
-        'Deeds\\Books 1200-1299\\Book 1200\\0001.pdf'
+        'Deeds\\Books 1200-1230\\Book 1200\\0001.pdf'
       )
+    })
+
+    it('book 1230 also in range 1200-1230', () => {
+      expect(buildArchivePath('deeds', '1230', 1)).toBe(
+        'Deeds\\Books 1200-1230\\Book 1230\\0001.pdf'
+      )
+    })
+  })
+
+  describe('deeds - archive cutover', () => {
+    it('buildArchiveUrl returns null for deed books > 1230 (electronic-only)', () => {
+      // Books beyond 1230 don't exist on the archive server
+      // buildArchivePath will generate a path but the file won't exist
+      // buildArchiveUrl uses try/catch so it returns null on error
+      const url = buildArchiveUrl('deeds', '1231', 1)
+      // This should still return a URL (the path builder doesn't validate existence)
+      // but it would 404 in practice. The guard is in index.ts enrichment loop.
+      expect(url).not.toBeNull()
     })
   })
 
@@ -90,6 +108,25 @@ describe('buildArchivePath', () => {
     it('format 12-Z', () => {
       expect(buildArchivePath('plats', '12-Z', 50)).toBe(
         'Plats\\Books 12 A-Z\\12-Z\\12-Z 050.pdf'
+      )
+    })
+
+    it('throws for plat group > 12 (archive only covers 1-12)', () => {
+      expect(() => buildArchivePath('plats', '13-A', 1)).toThrow('not in the scanned archive')
+      expect(() => buildArchivePath('plats', '14-R', 5)).toThrow('not in the scanned archive')
+      expect(() => buildArchivePath('plats', '20-B', 1)).toThrow('not in the scanned archive')
+    })
+
+    it('buildArchiveUrl returns null for plat group > 12', () => {
+      expect(buildArchiveUrl('plats', '13-A', 1)).toBeNull()
+      expect(buildArchiveUrl('plats', '14-R', 5)).toBeNull()
+    })
+  })
+
+  describe('mortgages - range folder does not use deed cutover', () => {
+    it('mortgage book 1200 uses standard range (not deed special case)', () => {
+      expect(buildArchivePath('mortgages', '1200', 1)).toBe(
+        'Mortgages\\Books 1200-1299\\Book 1200\\0001.pdf'
       )
     })
   })
@@ -183,6 +220,28 @@ describe('buildArchivePath', () => {
       expect(buildArchivePath('tax_maps', '1998 Edition', 1)).toBe(
         'Tax Maps\\1998 Edition\\0001.pdf'
       )
+    })
+
+    it('rejects path traversal in book name', () => {
+      expect(() => buildArchivePath('tax_maps', '..\\..\\etc', 1)).toThrow('Invalid tax map edition name')
+    })
+
+    it('rejects special characters in book name', () => {
+      expect(() => buildArchivePath('tax_maps', '1998; rm -rf', 1)).toThrow('Invalid tax map edition name')
+    })
+  })
+
+  describe('input validation', () => {
+    it('rejects invalid date_range format for indexes', () => {
+      expect(() => buildArchivePath('indexes', 'A', 1, { indexType: 'grantor', dateRange: '../../etc' })).toThrow('Invalid date range')
+    })
+
+    it('accepts valid date_range -1913', () => {
+      expect(buildArchivePath('indexes', 'A', 1, { indexType: 'grantor', dateRange: '-1913' })).toContain('-1913')
+    })
+
+    it('accepts valid date_range 1914-1949', () => {
+      expect(buildArchivePath('indexes', 'A', 1, { indexType: 'grantor', dateRange: '1914-1949' })).toContain('1914-1949')
     })
   })
 

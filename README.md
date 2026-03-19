@@ -2,7 +2,7 @@
 
 MCP server for unified property search across Greenville County, SC systems: GIS, Register of Deeds, zoning, tax, and scanned archives (1780s–present).
 
-## Tools (11)
+## Tools (13)
 
 | Tool | Description | Auth |
 |------|-------------|------|
@@ -13,6 +13,8 @@ MCP server for unified property search across Greenville County, SC systems: GIS
 | `search_rod_documents` | Search Register of Deeds by name or book/page | ROD creds |
 | `get_rod_document_page` | Fetch document page as PNG from electronic ROD viewer | ROD creds |
 | `get_rod_archive_page` | Fetch scanned archive page as PNG (1780s–present) | None |
+| `list_historical_records` | Browse historical court records directory (probate, common pleas, etc.) | None |
+| `get_historical_record_page` | Fetch a page image from a historical record volume | None |
 | `search_vehicle_tax` | Search vehicle tax records by name, VIN, or account | None |
 | `get_vehicle_tax_details` | Vehicle detail: year/make/model/VIN, tax breakdown | None |
 | `search_other_tax` | Search personal property tax: boats, aircraft, business, mobile homes | None |
@@ -58,6 +60,7 @@ Add to your MCP config:
 | [GIS (gcgis.org)](https://www.gcgis.org) | Property boundaries, owners, addresses, zoning, flood zones | Public |
 | [Register of Deeds — Electronic](https://viewer.greenvillecounty.org/countyweb) | Searchable index ~1937+ | Account required |
 | [Register of Deeds — Archive](https://greenvillecounty.org/apps/DirectoryListings/ROD_DirectoryListing/) | Scanned deeds, plats, indexes, land grants (1780s–present) | Public |
+| [Historical Records Search](https://greenvillecounty.org/apps/Historical_Records_Search/) | Scanned court records: probate, common pleas, general sessions, sheriff | Public |
 | Zoning & Tax | Zoning history, real property tax, vehicle tax, personal property tax | Public |
 
 ## Development
