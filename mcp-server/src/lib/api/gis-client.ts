@@ -198,12 +198,24 @@ export class GreenvilleGIS {
     city?: string,
     exactMatch?: boolean
   ): Promise<GISFeature[]> {
-    const cleanStreet = sanitizeForSql(stripStreetSuffix(street).toUpperCase(), !exactMatch)
+    // Extract leading street number from the street string if not provided separately
+    // (e.g., "31 Noble Wing" → number=31, street="Noble Wing")
+    let streetName = street
+    let streetNumber = number
+    if (!streetNumber) {
+      const match = streetName.match(/^(\d+)\s+(.+)$/)
+      if (match) {
+        streetNumber = parseInt(match[1], 10)
+        streetName = match[2]
+      }
+    }
+
+    const cleanStreet = sanitizeForSql(stripStreetSuffix(streetName).toUpperCase(), !exactMatch)
     let where = exactMatch
       ? `LOCATE = '${cleanStreet}'`
       : `LOCATE LIKE '%${cleanStreet}%' ESCAPE '\\'`
-    if (number && Number.isInteger(number) && number > 0) {
-      where += ` AND STRNUM = '${number}'`
+    if (streetNumber && Number.isInteger(streetNumber) && streetNumber > 0) {
+      where += ` AND STRNUM = '${streetNumber}'`
     }
     if (city) {
       const cleanCity = sanitizeForSql(city.toUpperCase(), false)
