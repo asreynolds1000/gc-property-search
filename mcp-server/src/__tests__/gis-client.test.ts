@@ -214,6 +214,100 @@ describe('GIS Client Integration', () => {
     })
   })
 
+  describe('searchByAddress - street suffix stripping', () => {
+    it('strips common suffix "LN" from street name', async () => {
+      global.fetch = createMockFetch()
+      await gisClient.searchByAddress('NOBLE WING LN')
+
+      const where = getWhereFromFetchCall(global.fetch as ReturnType<typeof vi.fn>)
+      expect(where).toContain("LOCATE LIKE '%NOBLE WING%'")
+      expect(where).not.toContain('LN')
+    })
+
+    it('strips longer suffixes like "LANE"', async () => {
+      global.fetch = createMockFetch()
+      await gisClient.searchByAddress('NOBLE WING LANE')
+
+      const where = getWhereFromFetchCall(global.fetch as ReturnType<typeof vi.fn>)
+      expect(where).toContain("LOCATE LIKE '%NOBLE WING%'")
+      expect(where).not.toContain('LANE')
+    })
+
+    it('strips "DR", "DRIVE", "ST", "AVE", "BLVD", "CT"', async () => {
+      global.fetch = createMockFetch()
+
+      for (const suffix of ['DR', 'DRIVE', 'ST', 'AVE', 'BLVD', 'CT']) {
+        await gisClient.searchByAddress(`MAIN ${suffix}`)
+        const where = getWhereFromFetchCall(global.fetch as ReturnType<typeof vi.fn>)
+        expect(where).toContain("LOCATE LIKE '%MAIN%'")
+        expect(where).not.toContain(suffix)
+      }
+    })
+
+    it('is case-insensitive for suffix stripping', async () => {
+      global.fetch = createMockFetch()
+      await gisClient.searchByAddress('Noble Wing Ln')
+
+      const where = getWhereFromFetchCall(global.fetch as ReturnType<typeof vi.fn>)
+      expect(where).toContain('NOBLE WING')
+      expect(where).not.toContain('LN')
+    })
+
+    it('does not strip suffix if street is a single word', async () => {
+      global.fetch = createMockFetch()
+      await gisClient.searchByAddress('LANE')
+
+      const where = getWhereFromFetchCall(global.fetch as ReturnType<typeof vi.fn>)
+      expect(where).toContain('LANE')
+    })
+
+    it('does not strip non-suffix trailing words', async () => {
+      global.fetch = createMockFetch()
+      await gisClient.searchByAddress('NOBLE WING')
+
+      const where = getWhereFromFetchCall(global.fetch as ReturnType<typeof vi.fn>)
+      expect(where).toContain('NOBLE WING')
+    })
+  })
+
+  describe('searchByAddress - street number extraction', () => {
+    it('extracts leading number from street string', async () => {
+      global.fetch = createMockFetch()
+      await gisClient.searchByAddress('31 Noble Wing')
+
+      const where = getWhereFromFetchCall(global.fetch as ReturnType<typeof vi.fn>)
+      expect(where).toContain("LOCATE LIKE '%NOBLE WING%'")
+      expect(where).toContain("STRNUM = '31'")
+    })
+
+    it('extracts number and strips suffix together', async () => {
+      global.fetch = createMockFetch()
+      await gisClient.searchByAddress('31 Noble Wing Ln')
+
+      const where = getWhereFromFetchCall(global.fetch as ReturnType<typeof vi.fn>)
+      expect(where).toContain("LOCATE LIKE '%NOBLE WING%'")
+      expect(where).toContain("STRNUM = '31'")
+      expect(where).not.toContain('LN')
+    })
+
+    it('prefers explicit street_number over extracted number', async () => {
+      global.fetch = createMockFetch()
+      await gisClient.searchByAddress('31 Noble Wing', 42)
+
+      const where = getWhereFromFetchCall(global.fetch as ReturnType<typeof vi.fn>)
+      // Explicit number=42 takes precedence; "31" stays in street name
+      expect(where).toContain("STRNUM = '42'")
+    })
+
+    it('does not extract if no leading number', async () => {
+      global.fetch = createMockFetch()
+      await gisClient.searchByAddress('Noble Wing')
+
+      const where = getWhereFromFetchCall(global.fetch as ReturnType<typeof vi.fn>)
+      expect(where).not.toContain('STRNUM')
+    })
+  })
+
   describe('searchCombined', () => {
     it('builds OWNAM1 OR OWNAM2 OR address WHERE clause', async () => {
       global.fetch = createMockFetch()
@@ -250,6 +344,45 @@ describe('GIS Client Integration', () => {
     it('returns empty array for short/empty terms', async () => {
       global.fetch = createMockFetch()
       const results = await gisClient.searchCombined('a b')
+
+      expect(global.fetch).not.toHaveBeenCalled()
+      expect(results).toEqual([])
+    })
+
+    it('filters out street suffixes from search terms', async () => {
+      global.fetch = createMockFetch()
+      await gisClient.searchCombined('Noble Wing Lane')
+
+      const where = getWhereFromFetchCall(global.fetch as ReturnType<typeof vi.fn>)
+      expect(where).toContain('NOBLE')
+      expect(where).toContain('WING')
+      expect(where).not.toContain('LANE')
+    })
+
+    it('filters short words AND suffixes together', async () => {
+      global.fetch = createMockFetch()
+      await gisClient.searchCombined('31 Noble Wing Ln')
+
+      const where = getWhereFromFetchCall(global.fetch as ReturnType<typeof vi.fn>)
+      // "31" dropped (< 3 chars), "Ln" dropped (< 3 chars), leaves NOBLE + WING
+      expect(where).toContain('NOBLE')
+      expect(where).toContain('WING')
+      expect(where).not.toContain("'31'")
+    })
+
+    it('filters longer suffixes like DRIVE and AVENUE', async () => {
+      global.fetch = createMockFetch()
+      await gisClient.searchCombined('NOBLE WING DRIVE')
+
+      const where = getWhereFromFetchCall(global.fetch as ReturnType<typeof vi.fn>)
+      expect(where).toContain('NOBLE')
+      expect(where).toContain('WING')
+      expect(where).not.toContain('DRIVE')
+    })
+
+    it('returns empty if all terms are suffixes or short words', async () => {
+      global.fetch = createMockFetch()
+      const results = await gisClient.searchCombined('Ln Dr')
 
       expect(global.fetch).not.toHaveBeenCalled()
       expect(results).toEqual([])

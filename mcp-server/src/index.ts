@@ -38,7 +38,7 @@ const server = new McpServer({
 // -- search_properties -------------------------------------------------------
 server.tool(
   'search_properties',
-  'Search Greenville County properties by owner name, PIN, address, or combined query. Returns up to 50 results with zoning and flood zone info. Owner searches check both primary and secondary owner fields (useful for joint ownership). PINs may be numeric (e.g., 0544020103500) or letter-prefixed for municipalities (G=Greer, T=Taylors, M=Mauldin, S=Simpsonville). Use city to filter by city name (e.g., "TAYLORS", "GREENVILLE"). Note: GIS addresses lack street suffixes (St, Ct, Dr). When duplicate addresses are detected, a fullAddress field from the tax system is added to disambiguate. Each result includes a jurisdictionHint derived from the PIN prefix.',
+  'Search Greenville County properties by owner name, PIN, address, or combined query. Returns up to 50 results with zoning and flood zone info. Owner searches check both primary and secondary owner fields (useful for joint ownership). PINs may be numeric (e.g., 0544020103500) or letter-prefixed for municipalities (G=Greer, T=Taylors, M=Mauldin, S=Simpsonville). Use city to filter by city name (e.g., "TAYLORS", "GREENVILLE"). Street suffixes (Ln, Dr, St, etc.) and leading street numbers are handled automatically -- pass the address as-is (e.g., "31 Noble Wing Ln"). When duplicate addresses are detected, a fullAddress field from the tax system is added to disambiguate. Each result includes a jurisdictionHint derived from the PIN prefix.',
   {
     query: z.string().describe('Search term: owner name, PIN, address, or combined'),
     type: z.enum(['owner', 'pin', 'address', 'combined']).optional().describe('Search type. Defaults to combined.'),
