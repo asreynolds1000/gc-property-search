@@ -76,6 +76,7 @@ Runtime: Node.js >= 20, compiled with tsc (NodeNext module resolution). ROD cred
 - Public, no auth: `greenvillecounty.org/apps/DirectoryListings/ROD_DirectoryListing/`
 - PDF pages converted to PNG via pdftoppm
 - Covers 1780s–present: deeds, plats, indexes, land grants, mortgages, affidavits, satisfactions, tax maps
+- Public web interface: `greenvillecounty.org/rod/searchrecords.aspx` > "Deeds Before 1985" tab (same underlying data, different entry point)
 
 ### Historical Records Search
 - Public, no auth: `greenvillecounty.org/apps/Historical_Records_Search/`
