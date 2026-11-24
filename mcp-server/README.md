@@ -1,6 +1,6 @@
 # gc-property-search-mcp
 
-MCP server for Greenville County, South Carolina property records. Provides 11 tools for searching and viewing GIS parcels, Register of Deeds documents, tax assessments, zoning history, vehicle/personal property tax, and scanned archive records dating back to the 1780s.
+MCP server for Greenville County, South Carolina property records. Provides 13 tools for searching and viewing GIS parcels, Register of Deeds documents, tax assessments, zoning history, vehicle/personal property tax, and scanned archive records dating back to the 1780s.
 
 ## Data Sources
 
